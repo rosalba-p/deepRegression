@@ -48,18 +48,18 @@ def parseArguments():
 
 
 #@profile
-def train(net, trainloader,criterion, optimizer,  device, teacher_type):
+def train(net, trainloader,criterion, optimizer,  device, conv):
 	net.train()
 	train_loss = 0
 
 	for batch_idx, (inputs, targets) in enumerate(trainloader):
+			
+		targets = targets.type(torch.FloatTensor).unsqueeze(1)
 		
-		if teacher_type == "mnist":				
-			targets = targets.type(torch.FloatTensor).unsqueeze(1)
-		else:
-			targets = targets.unsqueeze(1)
+			
 		inputs, targets = inputs.to(device), targets.to(device)
-
+		if not conv: 
+			inputs = inputs.flatten(start_dim = 1)
 		optimizer.zero_grad()
 		outputs = net(inputs)
 
@@ -74,18 +74,18 @@ def train(net, trainloader,criterion, optimizer,  device, teacher_type):
 
 
 #@profile
-def test(net, testloader,criterion, device,teacher_type):
+def test(net, testloader,criterion, optimizer,device,conv ):
 	net.eval()
 	test_loss = 0
 	with torch.no_grad():
 		for batch_idx, (inputs, targets) in enumerate(testloader):
+			
+				targets = targets.type(torch.FloatTensor).unsqueeze(1)
 
-				if teacher_type == "mnist":				
-					targets = targets.type(torch.FloatTensor).unsqueeze(1)
-				else:
-					targets = targets.unsqueeze(1)
-				
 				inputs, targets = inputs.to(device), targets.to(device)
+				if not conv: 
+					inputs = inputs.flatten(start_dim = 1)
+
 				outputs = net(inputs)
 				loss = criterion(outputs,targets)
 
@@ -148,7 +148,7 @@ except:
 print("\nyou are working on", device)
 
 save_data = True #TODO
-attributes_string = f"lr_{args.lr}_w_decay_{str(args.wd)}_noise_{args.noise}"  
+attributes_string = f"lr_{args.lr}_w_decay_{str(args.wd)}_noise_{args.noise}_bs_{args.bs}"  
 
 home = os.environ['HOME']
 P_list = [int(args.Pstart*(args.step**i)) for i in range(args.nPoints)]
@@ -161,7 +161,7 @@ first_subdir = mother_dir + f"teacher_{args.teacher_type}_net_{args.net_type}/"
 if not os.path.isdir(first_subdir): 
 	os.mkdir(first_subdir)
 
-RGB = True
+conv = True
 
 if args.net_type == "resnet":
 	net_class = make_resnet18()
@@ -171,13 +171,13 @@ elif args.net_type == "vgg":
 	net_class = make_vgg11()
 elif args.net_type == "2hl":
 	net_class = make_2hl(args.N, args.N1, args.N2)
-	RGB = False
+	conv = False
 elif args.net_type == "1hl":
 	net_class = make_1hl(args.N, args.N1)
-	RGB = False
+	conv = False
 elif args.net_type == "rfm":
 	net_class = make_1hl(args.N, args.N1)	
-	RGB = False
+	conv = False
 
 
 dir_name = first_subdir + attributes_string + net_class.attributes_string() 	
@@ -206,7 +206,7 @@ if not os.path.isdir(dir_name):
 start_time = time.time()
 
 
-teacher_class.RGB = RGB 
+teacher_class.conv = conv 
 teacher_class.P_test = args.Ptest 
 
 teacher_class.resume = args.resume
@@ -227,6 +227,8 @@ for P in P_list:
 	if args.bs == 0: 
 		batch_size_train = P
 		batch_size_test  = min(args.Ptest, P)
+	else: 
+		batch_size_train = args.bs
 
 	
 	net = net_class.sequential()
@@ -249,7 +251,7 @@ for P in P_list:
 
 
 	teacher_class.P = P	
-	teacher_class.batch_size = args.bs
+	teacher_class.batch_size = batch_size_train
 	train_type, test_type = teacher_class.training_type()
 
 
@@ -281,9 +283,11 @@ for P in P_list:
 		test_function_args = [net,test_inputs,test_targets,criterion,optimizer,device,batch_size_test]
 
 	elif train_type == "train": 
-		train_function_args = [net,trainloader,criterion,device,RGB]
-		test_function_args = [net,testloader,criterion,device,RGB]
 		trainloader, testloader, data, labels = teacher_class.make_data()
+
+		train_function_args = [net,trainloader,criterion,optimizer, device,conv]
+		test_function_args = [net,testloader,criterion,optimizer, device,conv]
+		
 
 
 	print("starting training")

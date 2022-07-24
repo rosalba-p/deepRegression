@@ -16,7 +16,7 @@ class mnist_dataset:
     #@profile
     def __init__(self):
         self.N = 784
-        self.RGB = bool("NaN")
+        self.conv = bool("NaN")
         self.P = float("NaN")
         self.P_test = float("NaN")
         self.batch_size = float("NaN")
@@ -24,7 +24,7 @@ class mnist_dataset:
 
     #@profile
     def make_data(self):
-        if self.RGB: 
+        if self.conv: 
             self.transform_dataset = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize((0.5,), (0.5, )), 
@@ -48,7 +48,7 @@ class mnist_dataset:
 
     
         trainloader = torch.utils.data.DataLoader(
-        trainset_small, batch_size = self.batch_size, shuffle=True, num_workers=2)
+        trainset_small, batch_size = self.batch_size, shuffle=True, num_workers=0)
 
         testset = torchvision.datasets.MNIST(
         root='./data', train=False, download=True, transform=self.transform_dataset)
