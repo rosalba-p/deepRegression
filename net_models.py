@@ -16,10 +16,9 @@ class make_1hl:
 
     def sequential(self):
         return  nn.Sequential(
-            nn.Linear(self.input_size, self.last_layer_size, bias=False),
-            #nn.ReLU(),
-            nn.Sigmoid(),
-            nn.Linear(self.last_layer_size, 1, bias=False),
+            nn.Linear(self.input_size, self.last_layer_size, bias=True),
+            nn.ReLU(),
+            nn.Linear(self.last_layer_size, 1, bias=True),
         )
 
     def attributes_string(self): 
