@@ -13,9 +13,12 @@ from torchvision.transforms import ToTensor
 import argparse 
 from collections import OrderedDict
 import torch.nn.init as init
+from teachers import mnist_dataset
 
 
-
+def make_directory(dir_name):
+    if not os.path.isdir(dir_name): 
+	    os.mkdir(dir_name)
 
 
 def load_datasets(dataFilename, labelsFilename, batch_size_train, teacher_class, device):
@@ -90,7 +93,7 @@ def init_network(net):
     for m in net.modules():
         if isinstance(m,nn.Linear):
             init.normal_(m.weight,std=1/np.sqrt(len(m.weight[0])))
-            init.constant_(m.bias,0)
+            #init.constant_(m.bias,0)
     #print_stats()
 
 #@profile
@@ -103,24 +106,7 @@ def normalise(net):
                 m.weight /= np.sqrt(len(m.weight[0]))
                 m.weight /= len(m.weight[0])
     #print_stats()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+      
 
 
 
@@ -145,3 +131,5 @@ def print_stats():
 
 def wrapper(func, args): # with star
     return func(*args)
+
+

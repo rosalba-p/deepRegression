@@ -18,7 +18,7 @@ sourceFile.close()
 
 #folder_name = "somefolder/"
 folder_name = "./"
-n = 20
+n = 50
 
 onlyfiles = [f for f in listdir(folder_name) if f[:3]=="run"]
 

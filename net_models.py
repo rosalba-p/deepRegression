@@ -7,18 +7,19 @@ import numpy as np
 
 
 
-class make_1hl: 
+class make_1hl(): 
 
     def __init__(self, input_size, last_layer_size):
         self.input_size = input_size 
         self.last_layer_size = last_layer_size
 
 
-    def sequential(self):
+    def sequential(self, bias):
         return  nn.Sequential(
-            nn.Linear(self.input_size, self.last_layer_size, bias=True),
+            nn.Linear(self.input_size, self.last_layer_size, bias=bias),
+            #nn.Tanh(),
             nn.ReLU(),
-            nn.Linear(self.last_layer_size, 1, bias=True),
+            nn.Linear(self.last_layer_size, 1, bias=bias),
         )
 
     def attributes_string(self): 
@@ -33,13 +34,13 @@ class make_2hl:
         self.last_layer_size = last_layer_size
 
 
-    def sequential(self):
+    def sequential(self, bias):
         return nn.Sequential(
-            nn.Linear(self.input_size, self.hid_layer_size, bias=True),
+            nn.Linear(self.input_size, self.hid_layer_size, bias=bias),
             nn.ReLU(),
-            nn.Linear(self.hid_layer_size, self.last_layer_size, bias=True),
+            nn.Linear(self.hid_layer_size, self.last_layer_size, bias=bias),
             nn.ReLU(),
-            nn.Linear(self.last_layer_size, 1, bias=True),
+            nn.Linear(self.last_layer_size, 1, bias=bias),
         )
 
     def attributes_string(self): 

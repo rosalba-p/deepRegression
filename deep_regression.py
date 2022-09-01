@@ -1,5 +1,5 @@
 from typing import Type
-from utils import * 
+import utils 
 from net_models import * 
 from teachers import * 
 
@@ -8,40 +8,34 @@ from teachers import *
 
 
 def parseArguments():
-
-	parser = argparse.ArgumentParser()
-
+	parser = utils.argparse.ArgumentParser()
 	# Positional mandatory arguments
 	parser.add_argument("teacher_type", help="choose a teacher type: linear, quadratic, 1hl, mnist", type=str)
 	parser.add_argument("net_type", help="choose a net type: rfm, 1hl, 2hl, resnet18, vgg11, densenet 121 ", type=str)
-
-
 	parser.add_argument("-lr", "--lr", help="learning rate", type=float, default=1e-04)
 	parser.add_argument("-wd", "--wd", help="weight decay", type=float, default=1e-05)
-	parser.add_argument("-resume", "--resume", help="resume previous training", type=bool, default=False)
+	parser.add_argument("-resume_net", "--resume_net", help="resume previous training", type=bool, default=False)
+	parser.add_argument("-resume_net", "--resume_net", help="resume previous training", type=bool, default=False)
 	parser.add_argument("-device", "--device",  type=str, default="cpu")
-
 	parser.add_argument("-epochs", "--epochs", help="number of train epochs", type = int, default = 10000)
 	parser.add_argument("-bs", "--bs", help="batch size train", type=int, default=0)
-
 	#you will trigger a series of experiment with increasing dataset size. at each step Pstart -> Pstart + step. the number of steps is: nPoints 
 	parser.add_argument("-Pstart", "--Pstart", help="size of training set", type=int, default=200)
+	parser.add_argument("-Pnorm", "--Pnorm",  type=int, default=100000)
 	parser.add_argument("-step", "--step", help="step to increase size", type=float, default=10)
 	parser.add_argument("-nPoints", "--nPoints", help="number of iterations", type=int, default=50)
-
 	#specify the networks you want to use 
 	parser.add_argument("-N", "--N", help="size of input data", type=int, default=300)
 	parser.add_argument("-N1", "--N1", help="size of first hidden layer", type=int, default=400)
 	parser.add_argument("-N2", "--N2", help="size of second hidden layer", type=int, default=400)
 	parser.add_argument("-N1T", "--N1T", help="size of teacher's hidden layer", type=int, default=200)
 	parser.add_argument("-Ptest", "--Ptest", help="# examples in test set", type=int, default=10000)
-
-
+	parser.add_argument("-opt", "--opt", type=str, default="sgd") #or adam
+	parser.add_argument("-bias", "--bias", type=bool, default=False)
 	# you can specify this index if you want to do more than one run of experiments. by default it is set to 0. 
 	parser.add_argument("-R", "--R", help="replica index", type=int, default=0)
 	parser.add_argument("-checkpoint", "--checkpoint", help="# epochs checkpoint", type=int, default=1000)
 	parser.add_argument("-noise", "--noise", help="signal to noise ratio", type=float, default=0.)
-
 	args = parser.parse_args()
 	return args
 
@@ -144,22 +138,20 @@ try:
 	device = "cuda"	
 except:
 	device ='cpu'
-#device = 'cpu'
+
 print("\nyou are working on", device)
 
-save_data = True #TODO
-attributes_string = f"lr_{args.lr}_w_decay_{str(args.wd)}_noise_{args.noise}_bs_{args.bs}"  
+save_data = False #TODO
+attributes_string = f"lr_{args.lr}_w_decay_{args.wd}_noise_{args.noise}_bs_{args.bs}"
 
-home = os.environ['HOME']
-P_list = [int(args.Pstart*(args.step**i)) for i in range(args.nPoints)]
-mother_dir = "./runs/"
-if not os.path.isdir(mother_dir): 
-	os.mkdir(mother_dir)
+home = utils.os.environ['HOME']
+P_list = [int(args.Pstart/(args.step**i)) for i in range(args.nPoints)]
+#P_list = [int(args.N1*i) for i in range(11,args.nPoints)]
+mother_dir = "./runs_quantitative/"
+utils.make_directory(mother_dir)
 
-
-first_subdir = mother_dir + f"teacher_{args.teacher_type}_net_{args.net_type}/"
-if not os.path.isdir(first_subdir): 
-	os.mkdir(first_subdir)
+first_subdir = mother_dir + f"teacher_{args.teacher_type}_net_{args.net_type}_opt_{args.opt}_bias_{args.bias}/"
+utils.make_directory(first_subdir)
 
 conv = True
 
@@ -184,44 +176,94 @@ dir_name = first_subdir + attributes_string + net_class.attributes_string()
 
 
 if args.teacher_type == "1hl":
-	teacher = torch.randn(args.N1T,args.N)
-	teacher_vec_2 = torch.randn(args.N1T)
-	teacher_class = one_hl_dataset(teacher, teacher_vec_2)
+	teacherFilename = f"{first_subdir}teacher_N_{args.N}_N1_{args.N1T}.pt"
+
+	try:
+		teacher = torch.load(teacherFilename)["layer1"]
+		teacher_vec_2 = torch.load(teacherFilename)["layer2"]
+		print("\nloading teacher")
+	except:
+		teacher = torch.randn(args.N1T,args.N)
+		teacher_vec_2 = torch.randn(args.N1T)
+		state = {
+			"layer1" : teacher,
+			"layer2" : teacher_vec_2
+		}
+		torch.save(state, teacherFilename)
+	
 	dir_name = f"{dir_name}_N1T_{args.N1T}"
+	teacher_class = one_hl_dataset(teacher, teacher_vec_2)
+	#teacher_class.N = args.N
 elif args.teacher_type == "quadratic": 
-	teacher = torch.randn(args.N)
+	teacherFilename = f"{first_subdir}/teacher_N_{args.N}.pt"
+	try:
+		teacher = torch.load(teacherFilename)
+		print("\nloading teacher")
+	except:
+		print("\ndidn't find a teacher, creating new one")
+		teacher = torch.randn(args.N)
+		torch.save(teacher, teacherFilename)
+
 	teacher_class = quadratic_dataset(teacher)
 elif args.teacher_type == "linear": 
-	teacher = torch.randn(args.N)
+	teacherFilename = f"{first_subdir}/teacher_N_{args.N}.pt"
+	try:
+		teacher = torch.load(teacherFilename)
+		print("\nloading teacher")
+	except:
+		print("\ndidn't find a teacher, creating new one")
+		teacher = torch.randn(args.N)
+		torch.save(teacher, teacherFilename)
 	teacher_class = linear_dataset(teacher)
 elif args.teacher_type == "mnist": 
-	teacher_class = mnist_dataset()
+	teacher_class = mnist_dataset(args.N)
 elif args.teacher_type == "random": 
 	teacher_class = random_dataset(args.N)
 
 dir_name = f"{dir_name}/"	
-if not os.path.isdir(dir_name): 
-	os.mkdir(dir_name)
+utils.make_directory(dir_name)
 
-start_time = time.time()
-
-
-teacher_class.conv = conv 
-teacher_class.P_test = args.Ptest 
-
+start_time = utils.time.time()
 teacher_class.resume = args.resume
 
+R0 = teacher_class.trivial_predictor(args.Pnorm)
+
 for P in P_list:
+
 	print("\nnumber of examples in the train set:", P)
 	trainsetFilename = f"{dir_name}trainset_P_{P}_replica_{args.R}.pt"
 	solutionFilename = f"{dir_name}solution_P_{P}_replica_{args.R}.pt"
+	runFilename = f"{dir_name}run_P_{P}_replica_{args.R}.txt"
 
-	runFilename = dir_name + f"run_P_{P}_replica_{args.R}.txt"
-
-	if not os.path.exists(runFilename):
+	if not utils.os.path.exists(runFilename):
 		sourceFile = open(runFilename, "a")
 		print("#epoch", "train error", "test error", file = sourceFile)
 		sourceFile.close()
+
+
+	
+	net = net_class.sequential(args.bias)
+	start_epoch = int(0)
+	if args.resume: 
+		net, start_epoch = utils.load_net_state(solutionFilename, net, device)
+		utils.cuda_init(net,device)
+	else: 
+		utils.cuda_init(net, device)	
+		utils.init_network(net)
+		utils.normalise(net)
+
+	if args.net_type == "rfm":
+		(net[0].weight.requires_grad) = False
+		(net[0].bias.requires_grad) = False
+	
+	lr = args.lr
+	if args.opt == "adam": 
+		optimizer = utils.optim.Adam(net.parameters(), lr=lr, weight_decay=args.wd)
+	elif args.opt == "sgd":
+		optimizer = utils.optim.SGD(net.parameters(), lr=lr, weight_decay=args.wd)
+	
+	criterion = nn.MSELoss()
+
 
 
 	if args.bs == 0: 
@@ -230,96 +272,73 @@ for P in P_list:
 	else: 
 		batch_size_train = args.bs
 
-	
-	net = net_class.sequential()
-	start_epoch = int(0)
-
-	if args.resume: 
-		net, start_epoch = load_net_state(solutionFilename, net, device)
-		cuda_init(net,device)
-	else: 
-		cuda_init(net, device)	
-		init_network(net)
-		normalise(net)
-
-	if args.net_type == "rfm":
-		(net[0].weight.requires_grad) = False
-		(net[0].bias.requires_grad) = False
-
-	optimizer = optim.Adam(net.parameters(), lr=args.lr, weight_decay=args.wd)
-	criterion = nn.MSELoss()
-
-
-	teacher_class.P = P	
+	teacher_class.N = args.N
 	teacher_class.batch_size = batch_size_train
 	train_type, test_type = teacher_class.training_type()
 
 
 	if train_type == "train_synthetic":
-		inputs, targets, test_inputs, test_targets, resumed = teacher_class.make_data(trainsetFilename, device)
+		inputs, targets, test_inputs, test_targets, resumed = teacher_class.make_data(P, args.Ptest, conv, trainsetFilename, device)
 
 		if not resumed: 
+			print("\nadding noise...")
 			targets = targets.to(device)
 			targets += (args.noise*torch.randn(targets.size())).to(device) 
 			test_targets += args.noise*torch.randn(test_targets.size())
 
 		if save_data:
-			print('Saving data...')
+			print('\nSaving data...')
 			state = {
 			'inputs': inputs,
 			'targets': targets,
-			#'teacher' : teacher,
-		}
-			if args.teacher_type == "1hl":
-				state = {
-				'inputs': inputs,
-				'targets': targets,
-				'teacher' : teacher,
-				'teacher2' : teacher_vec_2
 			}
-		torch.save(state, trainsetFilename)
+			torch.save(state, trainsetFilename)
+			
 
 		train_function_args = [net,inputs,targets,criterion,optimizer,device,batch_size_train]
 		test_function_args = [net,test_inputs,test_targets,criterion,optimizer,device,batch_size_test]
 
 	elif train_type == "train": 
-		trainloader, testloader, data, labels = teacher_class.make_data()
+		teacher_class.P = P
+		teacher_class.P_test = args.Ptest
+		trainloader, testloader, data, labels = teacher_class.make_data(P, args.Ptest, conv)
 
 		train_function_args = [net,trainloader,criterion,optimizer, device,conv]
 		test_function_args = [net,testloader,criterion,optimizer, device,conv]
 		
 
 
-	print("starting training")
+	print("\nstarting training")
 	sourceFile = open(runFilename, 'a')
 
 	#zeroth epoch
-	train_loss = wrapper(eval(test_type), train_function_args)
-
+	train_loss = utils.wrapper(eval(test_type), train_function_args)/R0
 	#### TRY THIS ONE 
 	#train_loss = eval(f"{test_type}(*{train_function_args}))
-
-	test_loss = wrapper(eval(test_type), test_function_args)
-	print(f"{start_epoch}", train_loss, test_loss, test_loss-train_loss, file = sourceFile)
+	test_loss = utils.wrapper(eval(test_type), test_function_args)/R0
+	print(f"{start_epoch}", train_loss, test_loss, file = sourceFile)
 	print(f'\nEpoch: 0 \nTrain Loss: {train_loss} \nTest Loss: {test_loss}')	
 
+	losses = []
 	for epoch in range(start_epoch+1, args.epochs):		
 
-		train_loss = wrapper(eval(train_type), train_function_args)
-		test_loss = wrapper(eval(test_type), test_function_args)
+		train_loss = utils.wrapper(eval(train_type), train_function_args)/R0
+		test_loss = utils.wrapper(eval(test_type), test_function_args)/R0
 		print(epoch, train_loss, test_loss, file = sourceFile)
+
+		losses.append(train_loss)
+		try:
+			if np.std(losses[-500::]) < 10^-1:
+				break
+		except:
+			print("not yet")
 
 		if epoch % args.checkpoint == 0 or epoch == args.epochs-1 :
 			sourceFile.close()
 			sourceFile = open(runFilename, 'a')
 			print(f'\nEpoch: {epoch} \nTrain Loss: {train_loss} \nTest Loss: {test_loss}')				
-			print("training took --- %s seconds ---" % (time.time() - start_time))
-			start_time = time.time()	
-			save_state(net, epoch, solutionFilename)
-			if train_loss < 1e-05:
-				break
+			print("training took --- %s seconds ---" % (utils.time.time() - start_time))
+			start_time = utils.time.time()	
+			utils.save_state(net, epoch, solutionFilename)
 
-
-
-	#print_stats()
 	sourceFile.close()
