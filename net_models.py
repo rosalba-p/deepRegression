@@ -1,3 +1,4 @@
+from collections import OrderedDict
 import torch 
 import torch.nn as nn
 import torchvision.models as models 
@@ -6,19 +7,27 @@ import torchvision
 import numpy as np
 
 
+class Erf(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        return torch.erf(x)
 
 class make_1hl(): 
 
-    def __init__(self, input_size, last_layer_size):
+    def __init__(self, input_size):
         self.input_size = input_size 
-        self.last_layer_size = last_layer_size
+        self.last_layer_size = float("NaN")
 
 
     def sequential(self, bias):
         return  nn.Sequential(
             nn.Linear(self.input_size, self.last_layer_size, bias=bias),
-            #nn.Tanh(),
-            nn.ReLU(),
+            Erf(),
+            #nn.BatchNorm1d(self.last_layer_size),
+            #nn.ReLU(),
+# nn.Sigmoid(),
             nn.Linear(self.last_layer_size, 1, bias=bias),
         )
 
@@ -28,10 +37,10 @@ class make_1hl():
 
 class make_2hl: 
 
-    def __init__(self, input_size, hid_layer_size, last_layer_size):
+    def __init__(self, input_size, hid_layer_size):
         self.input_size = input_size 
         self.hid_layer_size = hid_layer_size
-        self.last_layer_size = last_layer_size
+        self.last_layer_size = float("NaN")
 
 
     def sequential(self, bias):
