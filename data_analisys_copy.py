@@ -8,11 +8,6 @@ from os.path import isfile, join
 from operator import itemgetter 
 from itertools import groupby
 
-lambda1 = 1.
-N1 = 500
-N = 200
-lambda0 = 1.
-
 pwd = os.getcwd().split("/")[-1]
 parentdir = os.path.abspath(os.path.join(os.getcwd(), os.pardir))
 output_file = f"{parentdir}/scaling_{pwd}.txt"
@@ -33,12 +28,8 @@ def get_scaling(file, n):
 	file = open(file, "r")
 	lines = file.readlines()
 	lines.pop(0)
-	#try:
-	#	theo_err = float(lines[0].split(" ")[3])
-	#	qbar = float(lines[0].split(" ")[4])
-	#except: 
-	#	theo_err, qbar = 1,1
-	#	lines.pop(0)
+	theo_err = float(lines[0].split(" ")[3])
+	qbar = float(lines[0].split(" ")[4])
 
 	last_lines = lines[-n:]
 
@@ -60,15 +51,15 @@ def get_scaling(file, n):
 	err_train = np.std(trainerr)
 	err_test = np.std(testerr)
 	
-	return scaling_train, scaling_test, err_train, err_test
+	return scaling_train, scaling_test, err_train, err_test, theo_err, qbar
 
 
 def get_specs(f,n):
 	specs = f.split("_")
 	last = specs[-1].split(".")
 	specs = specs[:-1] + last
-	scal_train, scal_test, err_train, err_test = get_scaling(f, n)
-	return [int(specs[2]), scal_train, err_train, scal_test, err_test]
+	scal_train, scal_test, err_train, err_test,theo_err, qbar = get_scaling(f, n)
+	return [int(specs[2]), scal_train, err_train, scal_test, err_test, theo_err, qbar]
 
 def check_file(file,n):
 	file = open(file, "r")
@@ -102,15 +93,6 @@ scal_list = sorted(scal_list, key =itemgetter(0))
 
 scal_list = [list(g) for _,g in groupby(scal_list, key=itemgetter(0))]
 
-
-#file = open("/storage/local/sebastianoariosto/rosiwork/deepRegression/runs_new/teacher_linear_net_1hl_opt_sgd_bias_False/theory_N1_500.txt", "r")
-#file = open(f"{parentdir}/theory_N_{N}_N1_{N1}_lambda0_{lambda0}_lambda1_{lambda1}.txt", "r")
-#lines = file.readlines()
-#theo_pred = [float(lines[i].split(" ")[1]) for i in range(len(lines))]
-#qbar = [float(lines[j].split(" ")[2]) for j in range(len(lines))]
-
-
-a = 0
 for item in scal_list:
 	mat = np.matrix(item)
 	scal_train = np.mean(mat[:,1])
@@ -118,9 +100,8 @@ for item in scal_list:
 	err_train = np.sqrt(np.sum(np.square(mat[:,2])))*(1/np.sqrt(len(mat[:,1])))
 	err_test = np.sqrt(np.sum(np.square(mat[:,4])))*(1/np.sqrt(len(mat[:,3])))
 	err_test = np.std(mat[:,3])	
-	#theo_pred = np.mean(mat[:,5])
-	#qbar = np.mean(mat[:,6])
+	theo_pred = np.mean(mat[:,5])
+	qbar = np.mean(mat[:,6])
 	sourceFile= open(output_file, 'a')
-	print(item[0][0], scal_train, err_train, scal_test, err_test, len(mat[:,1]),  file = sourceFile)
-	a += 1
+	print(item[0][0], scal_train, err_train, scal_test, err_test, theo_pred, qbar, len(mat[:,1]),  file = sourceFile)
 	sourceFile.close()

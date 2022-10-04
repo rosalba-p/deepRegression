@@ -9,26 +9,33 @@ from operator import itemgetter
 from itertools import groupby
 
 lambda1 = 1.
-N1 = 500
-N = 200
+lr = 0.1
+N = 500
 lambda0 = 1.
 
 pwd = os.getcwd().split("/")[-1]
 parentdir = os.path.abspath(os.path.join(os.getcwd(), os.pardir))
-output_file = f"{parentdir}/scaling_{pwd}.txt"
+output_file = f"scaling_N1_N_{N}_lr_{lr}_lambda0_{lambda0}_lambda1_{lambda1}.txt"
 
 sourceFile= open(output_file, 'a')
-print('#1. P', '2. train error', '3. train error stdev','4. test error', '5. test error stdev','6. predicted theo','7. qbar','8. n samples', file = sourceFile)
+print('#1. N1', '2. train error', '3. train error stdev','4. test error', '5. test error stdev','6. predicted theo','7. qbar','8. n samples', file = sourceFile)
 sourceFile.close()
 
 #folder_name = "somefolder/"
 folder_name = "./"
 n = 50
+#wanted_P = 723
+wanted_P = 723
+allfiles = [f for f in listdir(folder_name) if (f[:10]=="scaling_lr") ]
+onlyfiles = []
+for f in allfiles: 
+	specs = f.split("_")
+	print(specs[15])
+	if specs[15] == f"{N}":
+		print("yes")
+		onlyfiles.append(f)
 
-onlyfiles = [f for f in listdir(folder_name) if f[:3]=="run"]
-
-
-def get_scaling(file, n):
+def get_scaling(file, n,wanted_P):
 
 	file = open(file, "r")
 	lines = file.readlines()
@@ -40,35 +47,37 @@ def get_scaling(file, n):
 	#	theo_err, qbar = 1,1
 	#	lines.pop(0)
 
-	last_lines = lines[-n:]
+	#last_lines = lines[-n:]
 
-	last_lines = [line.split(" ") for line in last_lines]
-	num_col = len(last_lines[0])
-	for i in last_lines: 
+	lines = [line.split(" ") for line in lines]
+	num_col = len(lines[0])
+	for i in lines: 
 		if len(i) != num_col:
-			last_lines.remove(i)
-	n = len(last_lines)
-	last_lines = np.reshape(last_lines, (n,num_col))
-	trainerr = last_lines[:,1]
+			lines.remove(i)
+	n = len(lines)
+	lines = np.reshape(lines, (n,num_col))
+	P = lines[:,0]
+	trainerr = lines[:,1]
+	std_trainerr = lines[:,2]
+	testerr = lines[:,3]
+	std_testerr = lines[:,4]
+	std_trainerr = [float(i) for i in std_trainerr]
 	trainerr = [float(i) for i in trainerr]
-	testerr = last_lines[:,2]
-
+	P = [int(i) for i in P]
+	wanted = P.index(wanted_P)
+	std_testerr = [float(i) for i in std_testerr]
 	testerr = [float(i) for i in testerr]
 	file.close()
-	scaling_train = np.mean(trainerr)
-	scaling_test = np.mean(testerr) 
-	err_train = np.std(trainerr)
-	err_test = np.std(testerr)
 	
-	return scaling_train, scaling_test, err_train, err_test
+	return trainerr[wanted],std_trainerr[wanted], testerr[wanted], std_testerr[wanted]
 
 
 def get_specs(f,n):
 	specs = f.split("_")
 	last = specs[-1].split(".")
 	specs = specs[:-1] + last
-	scal_train, scal_test, err_train, err_test = get_scaling(f, n)
-	return [int(specs[2]), scal_train, err_train, scal_test, err_test]
+	trainerr,std_trainerr, testerr, std_testerr = get_scaling(f, n,wanted_P)
+	return [int(specs[-2]), trainerr,std_trainerr, testerr, std_testerr]
 
 def check_file(file,n):
 	file = open(file, "r")
@@ -89,13 +98,13 @@ def check_file(file,n):
 	else:
 		return True
 
-to_remove = []
-for f in onlyfiles:
-	if check_file(f, n):
-		to_remove.append(f)	
-
-for f in to_remove: 
-	onlyfiles.remove(f)
+#to_remove = []
+#for f in onlyfiles:
+#	if check_file(f, n):
+#		to_remove.append(f)	
+#
+#for f in to_remove: 
+#	onlyfiles.remove(f)
 
 scal_list = [get_specs(f,n) for f in onlyfiles]
 scal_list = sorted(scal_list, key =itemgetter(0)) 

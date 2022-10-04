@@ -1,5 +1,12 @@
 from typing import Type
-import utils, net_models, teachers  
+import utils, net_models, teachers 
+import torch.nn.functional as F
+from torch.autograd import Variable
+from torch.optim import Optimizer
+from torch.optim.sgd import SGD
+
+from torchvision import datasets, transforms
+from torchvision.utils import make_grid 
 import torch, torch.nn as nn
 from theory_multiple_layers_all import compute_theory, compute_theory_synthetic, compute_theory_synthetic_sign
 from theory_erf import compute_theory_synthetic_erf, compute_theory_erf
@@ -8,7 +15,137 @@ args = utils.parseArguments()
 #args.resume_data = False
 #print(args.resume_data)
 
+def to_variable(var=(), cuda=True, volatile=False):
+    out = []
+    for v in var:
+        
+        if isinstance(v, np.ndarray):
+            v = torch.from_numpy(v).type(torch.FloatTensor)
 
+        if not v.is_cuda and cuda:
+            v = v.cuda()
+
+        if not isinstance(v, Variable):
+            v = Variable(v, volatile=volatile)
+
+        out.append(v)
+    return out
+
+
+class Langevin_SGD(Optimizer):
+
+    def __init__(self, params, lr, weight_decay=0, nesterov=False):
+        if lr < 0.0:
+            raise ValueError("Invalid learning rate: {}".format(lr))
+        if weight_decay < 0.0:
+            raise ValueError("Invalid weight_decay value: {}".format(weight_decay))
+
+        defaults = dict(lr=lr, weight_decay=weight_decay)
+        
+        super(Langevin_SGD, self).__init__(params, defaults)
+
+    def __setstate__(self, state):
+        super(SGD, self).__setstate__(state)
+        for group in self.param_groups:
+            group.setdefault('nesterov', False)
+
+    def step(self, closure=None):
+        
+        loss = None
+        if closure is not None:
+            loss = closure()
+
+        for group in self.param_groups:
+            
+            weight_decay = group['weight_decay']
+            
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                d_p = p.grad.data
+                
+                if len(p.shape) == 1 and p.shape[0] == 1:
+                    p.data.add_(-group['lr'], d_p)
+                    
+                else:
+                    if weight_decay != 0:
+                        d_p.add_(weight_decay, p.data)
+
+                    unit_noise = Variable(p.data.new(p.size()).normal_())
+
+                    p.data.add_(-group['lr'], 0.5*d_p + unit_noise/group['lr']**0.5)
+
+        return loss
+
+
+def log_gaussian_loss(output, target, sigma, no_dim):
+    exponent = -0.5*(target - output)**2/sigma**2
+    log_coeff = -no_dim*torch.log(sigma)
+    
+    return - (log_coeff + exponent).sum()
+
+
+def get_kl_divergence(weights, prior, varpost):
+    prior_loglik = prior.loglik(weights)
+    
+    varpost_loglik = varpost.loglik(weights)
+    varpost_lik = varpost_loglik.exp()
+    
+    return (varpost_lik*(varpost_loglik - prior_loglik)).sum()
+
+
+class gaussian:
+    def __init__(self, mu, sigma):
+        self.mu = mu
+        self.sigma = sigma
+        
+    def loglik(self, weights):
+        exponent = -0.5*(weights - self.mu)**2/self.sigma**2
+        log_coeff = -0.5*(np.log(2*np.pi) + 2*np.log(self.sigma))
+        
+        return (exponent + log_coeff).sum()
+
+
+class Langevin_Layer(nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super(Langevin_Layer, self).__init__()
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        
+        self.weights = nn.Parameter(torch.Tensor(self.input_dim, self.output_dim).uniform_(-0.01, 0.01))
+        self.biases = nn.Parameter(torch.Tensor(self.output_dim).uniform_(-0.01, 0.01))
+        
+    def forward(self, x):
+        
+        return torch.mm(x, self.weights) + self.biases
+
+class Langevin_Model(nn.Module):
+    def __init__(self, input_dim, output_dim, no_units, init_log_noise):
+        super(Langevin_Model, self).__init__()
+        
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        
+        # network with two hidden and one output layer
+        self.layer1 = Langevin_Layer(input_dim, no_units)
+        self.layer2 = Langevin_Layer(no_units, no_units)
+        self.layer3 = Langevin_Layer(no_units, output_dim)
+        
+        # activation to be used between hidden layers
+        self.activation = nn.ReLU(inplace = True)
+        self.log_noise = nn.Parameter(torch.cuda.FloatTensor([init_log_noise]))
+
+    
+    def forward(self, x):
+        
+        x = x.view(-1, self.input_dim)
+        
+        x = self.layer1(x)
+        x = self.activation(x)
+        
+        x = self.layer3(x)
+        
+        return x
 
 try:
 	if args.device == 'cpu':
@@ -19,6 +156,33 @@ except:
 	device ='cpu'
 print('\nWorking on', device)
 
+class Langevin_Wrapper:
+    def __init__(self, input_dim, output_dim, no_units, learn_rate, batch_size, no_batches, init_log_noise, weight_decay):
+        
+        self.learn_rate = learn_rate
+        self.batch_size = batch_size
+        self.no_batches = no_batches
+        
+        self.network = Langevin_Model(input_dim = input_dim, output_dim = output_dim,
+                                      no_units = no_units, init_log_noise = init_log_noise)
+        self.network.cuda()
+        
+        self.optimizer = Langevin_SGD(self.network.parameters(), lr=self.learn_rate, weight_decay=weight_decay)
+        self.loss_func = log_gaussian_loss
+    
+    def fit(self, x, y):
+        x, y = to_variable(var=(x, y), cuda=True)
+        
+        # reset gradient and total loss
+        self.optimizer.zero_grad()
+        
+        output = self.network(x)
+        loss = self.loss_func(output, y, torch.exp(self.network.log_noise), 1)
+        
+        loss.backward()
+        self.optimizer.step()
+
+        return loss
 
 home = utils.os.environ['HOME']
 #P_list = [int(69*(args.step**i)) for i in range(9,args.nPoints)]
@@ -185,6 +349,8 @@ for P in P_list:
 			optimizer = utils.optim.Adam(net.parameters(), lr=lr, weight_decay=args.wd)
 		elif args.opt == 'sgd':
 			optimizer = utils.optim.SGD(net.parameters(), lr=lr, weight_decay=args.wd)
+		elif args.opt == 'langevin':
+			optimizer = Langevin_SGD(net.parameters(), lr=lr, weight_decay=args.wd)
 		criterion = nn.MSELoss()
 		if train_type == "train_synthetic":
 			train_function_args = [net,inputs,targets,criterion,optimizer,device,batch_size_train]
@@ -206,6 +372,7 @@ for P in P_list:
 		print(f'\nEpoch: 0 \nTrain Loss: {train_loss} \nTest Loss: {test_loss}')	
 		for epoch in range(start_epoch+1, args.epochs):
 			train_loss = utils.wrapper(eval(f'utils.{train_type}'), train_function_args)/R0
+			
 			test_loss = utils.wrapper(eval(f'utils.{test_type}'), test_function_args)/R0
 			print(epoch, train_loss, test_loss, file = sourceFile)
 			if epoch % args.checkpoint == 0 or epoch == args.epochs-1 :
